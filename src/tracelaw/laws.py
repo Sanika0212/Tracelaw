@@ -49,6 +49,15 @@ def _close(a: float, b: float) -> bool:
     return abs(a - b) <= TOLERANCE * max(1.0, abs(a), abs(b))
 
 
+# how interesting a kind of law is to read first: relations, then changes, then values
+PRIORITY = {
+    "equal": 0, "sum_of": 0, "plus": 0, "product": 0, "member": 0, "subset": 0,
+    "delta": 1, "unchanged": 1, "monotone": 1,
+    "one_of": 2, "range": 2, "present": 3, "kind": 4,
+    "each_one_of": 3, "each_range": 3, "each_nonempty": 3, "each_kind": 4,
+}  # fmt: skip
+
+
 @dataclass
 class Law:
     step: str
@@ -399,7 +408,8 @@ def _fences(values: Sequence[float], margin: float) -> dict[str, float]:
     """
     lo, hi = float(min(values)), float(max(values))
     pad = margin * (hi - lo)
-    return {"lo": lo - pad, "hi": hi + pad}
+    # a quantity never seen below zero stays non-negative: a negative price is a bug
+    return {"lo": lo - pad if lo < 0 else max(lo - pad, 0.0), "hi": hi + pad}
 
 
 def _aliases(columns: dict[str, list[Any]], n: int) -> set[str]:
