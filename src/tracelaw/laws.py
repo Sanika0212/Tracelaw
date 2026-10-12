@@ -21,6 +21,9 @@ law             holds when
                 in.amount``)
 ``each_*``      every element of a list has a kind, a range, a value from a few, or is not
                 empty (``post.notes[].url`` is never empty)
+``member``      an argument is always one of the values the state already holds
+                (``in.order_id`` is among the ids seen so far: no invented ids)
+``subset``      every element of a list argument is among them (``in.item_ids[]``)
 ==============  ====================================================================
 
 Every law keeps its *support* (how many observations it held in). A violated law's
@@ -79,6 +82,8 @@ class Law:
             f"[{_fmt(p.get('lo'))}, {_fmt(p.get('hi'))}]",
             "each_nonempty": f"no element of {v[0]} is empty",
             "each_one_of": f"every element of {v[0]} is one of {p.get('values')}",
+            "member": f"{v[0]} is one of {v[1] if len(v) > 1 else ''}",
+            "subset": f"every element of {v[0]} is in {v[1] if len(v) > 1 else ''}",
         }[self.kind]
         return f"{self.step}: {text}"
 
@@ -237,6 +242,23 @@ def _check_each_one_of(law: Law, values: dict[str, Any]) -> str | None:
     return f"{law.vars[0]} has {_fmt(bad[0])}" if bad else None
 
 
+def _check_member(law: Law, values: dict[str, Any]) -> str | None:
+    a, pool = law.vars
+    if a not in values or not isinstance(values.get(pool), list):
+        return None
+    value = values[a]
+    return None if value in values[pool] else f"{a} = {_fmt(value)} was never seen in {pool}"
+
+
+def _check_subset(law: Law, values: dict[str, Any]) -> str | None:
+    a, pool = law.vars
+    items, known = values.get(a), values.get(pool)
+    if not isinstance(items, list) or not isinstance(known, list):
+        return None
+    missing = [x for x in items if x not in known]
+    return f"{a} has {_fmt(missing[0])}, never seen in {pool}" if missing else None
+
+
 def _check_plus(law: Law, values: dict[str, Any]) -> str | None:
     t, a, b = (_num(values.get(v)) for v in law.vars)
     if t is None or a is None or b is None:
@@ -264,6 +286,8 @@ _CHECKS = {
     "each_range": _check_each_range,
     "each_nonempty": _check_each_nonempty,
     "each_one_of": _check_each_one_of,
+    "member": _check_member,
+    "subset": _check_subset,
 }
 
 
@@ -319,14 +343,51 @@ def mine_step(step: str, observations: Sequence[dict[str, Any]], opts: MiningOpt
             )
         if kinds in (["str"], ["bool"], ["bool", "null"], ["null", "str"]):
             distinct = Counter(column)
-            if len(distinct) <= opts.max_enum and len(column) >= opts.enum_ratio * len(distinct):
+            # every allowed value seen twice or more: values seen once (Good-Turing) mean an
+            # open-ended field, where the next value is likely to be new
+            if (
+                len(distinct) <= opts.max_enum
+                and len(column) >= opts.enum_ratio * len(distinct)
+                and min(distinct.values()) >= 2
+            ):
                 laws.append(
                     Law(step, "one_of", (path,), {"values": sorted(distinct, key=str)}, len(column))
                 )
 
     laws.extend(_transitions(step, observations, opts))
     laws.extend(_relations(step, observations, columns, opts))
+    laws.extend(_memberships(step, columns, observations, opts))
     return laws
+
+
+def _memberships(
+    step: str,
+    columns: dict[str, list[Any]],
+    observations: Sequence[dict[str, Any]],
+    opts: MiningOptions,
+) -> list[Law]:
+    """Arguments drawn from what the state already holds (``in.order_id in pre.ids[]``)."""
+    pools = [p for p, c in columns.items() if p.startswith("pre.") and p.endswith("[]")]
+    if not pools:
+        return []
+    out: list[Law] = []
+    for arg, column in columns.items():
+        if not arg.startswith("in.") or len(column) < opts.min_support:
+            continue
+        is_list = all(isinstance(v, list) for v in column)
+        if not is_list and not all(isinstance(v, str) for v in column):
+            continue
+        if len({_hashable(v) for v in column}) < 2:
+            continue  # a constant argument says nothing about where it came from
+        for pool in pools:
+            pairs = [(o[arg], o[pool]) for o in observations if arg in o and pool in o]
+            if len(pairs) < opts.min_support:
+                continue
+            if is_list and all(all(x in known for x in v) for v, known in pairs):
+                out.append(Law(step, "subset", (arg, pool), {}, len(pairs)))
+            elif not is_list and all(v in known for v, known in pairs):
+                out.append(Law(step, "member", (arg, pool), {}, len(pairs)))
+    return out
 
 
 def _fences(values: Sequence[float], margin: float) -> dict[str, float]:
