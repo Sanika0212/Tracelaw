@@ -97,13 +97,9 @@ class Lawbook:
         for run in runs:
             for step in run.steps:
                 values = variables(step)
-                # the same tool event repeated (the same task run again) is one piece of
-                # evidence, not several: count identical inputs and outputs once
-                event = json.dumps(
-                    {k: v for k, v in values.items() if k.startswith(("in.", "out."))},
-                    sort_keys=True,
-                    default=str,
-                )
+                # the same event repeated (the same task run again) is one piece of
+                # evidence, not several: count identical steps (state, inputs and outputs) once
+                event = json.dumps(values, sort_keys=True, default=str)
                 if (step.name, event) in seen:
                     continue
                 seen.add((step.name, event))
