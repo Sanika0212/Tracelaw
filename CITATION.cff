@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Tracelaw, please cite it as below."
+title: "Tracelaw: learning the laws of good agent runs and localising the first violation"
+type: software
+authors:
+  - family-names: Najan
+    given-names: Sanika Vilas
+    email: sanikanajan@gmail.com
+version: 0.1.0
+date-released: 2026-10-12
+license: Apache-2.0
+repository-code: "https://github.com/Sanika0212/Tracelaw"
+keywords:
+  - llm agents
+  - invariant mining
+  - anomaly detection
+  - conformal prediction
+  - fault localization
