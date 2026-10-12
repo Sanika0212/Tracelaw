@@ -93,9 +93,21 @@ class Lawbook:
     ) -> Lawbook:
         """Mine laws and the trajectory model from good runs (no calibration)."""
         observations: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        seen: set[tuple[str, str]] = set()
         for run in runs:
             for step in run.steps:
-                observations[step.name].append(variables(step))
+                values = variables(step)
+                # the same tool event repeated (the same task run again) is one piece of
+                # evidence, not several: count identical inputs and outputs once
+                event = json.dumps(
+                    {k: v for k, v in values.items() if k.startswith(("in.", "out."))},
+                    sort_keys=True,
+                    default=str,
+                )
+                if (step.name, event) in seen:
+                    continue
+                seen.add((step.name, event))
+                observations[step.name].append(values)
         laws = mine(observations, options)
         trajectory = Trajectory(order=order).fit([r.names for r in runs])
         return cls(laws, trajectory, runs=len(runs), transition_weight=transition_weight)
@@ -166,6 +178,8 @@ class Lawbook:
                 )
             values = variables(step)
             for law in by_step.get(step.name, []):
+                if step.error is not None and any(v.startswith("out.") for v in law.vars):
+                    continue  # the error explains missing or odd outputs: one finding, not many
                 problem = law.check(values)
                 if problem is not None:
                     scores[i] += law.strength
